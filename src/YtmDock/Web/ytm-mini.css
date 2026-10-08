@@ -1,0 +1,244 @@
+/* YTM Dock — mini mode.
+ * 2026-10-08 실제 DOM 을 읽고 작성 (내장 브라우저 + getComputedStyle 덤프 기준).
+ *
+ * 알아낸 사실:
+ *  - ytmusic-player-bar 는 페이지에 2개 있다. 플레이어 페이지 안의 #top-player-bar(숨김) 와
+ *    ytmusic-app-layout 바로 아래의 진짜 하단 바. 셀렉터는 반드시 `ytmusic-app-layout > ytmusic-player-bar`.
+ *  - 하단 바는 flex 가 아니라 **grid** (grid-template-columns: 1fr 2.5fr 1fr, areas "start middle end").
+ *    그래서 flex 속성으로 아무리 밀어도 안 움직였다.
+ *  - 볼륨 버튼(.volume)과 슬라이더(#volume-slider)는 viewport 1100px 에서는 display:none,
+ *    1400px 에서는 보인다. 대신 좁을 땐 .expand-button(스피커 아이콘) 이 펼침 메뉴를 연다.
+ *    → C# 의 VirtualW 를 1400 으로 올렸다.
+ *  - 자식 구조: .left-controls(.left-controls-buttons: previous/play-pause/next, .time-info)
+ *               .middle-controls(.thumbnail-image-wrapper > img.image, .content-info-wrapper > .title + .byline-wrapper, .middle-controls-buttons)
+ *               #right-controls(#volume-slider, .right-controls-buttons: volume/captions/repeat/shuffle/expand-button, .toggle-player-page-button)
+ *
+ * 미니 레이아웃: [앨범아트][제목/가수 ........][⏮ ▶ ⏭][🔊 ━━━]  (높이 72px)
+ */
+
+html, body {
+  overflow: hidden !important;
+  background: #121212 !important;
+}
+
+/* 플레이어 바를 제외한 모든 것 숨김 */
+ytmusic-app-layout > *:not(ytmusic-player-bar) {
+  display: none !important;
+}
+
+/* ── 바 자체: grid → flex 로 바꾸고 창 왼쪽 위에 고정 ─────────────────────── */
+ytmusic-app-layout > ytmusic-player-bar {
+  position: fixed !important;
+  top: 0 !important;
+  left: 0 !important;
+  width: var(--ytm-dock-width, 440px) !important;
+  height: 64px !important;
+  display: flex !important;
+  align-items: center !important;
+  padding: 5px 4px 0 8px !important;
+  box-sizing: border-box !important;
+  background: #121212 !important;
+  z-index: 9999 !important;
+  app-region: drag;
+  -webkit-app-region: drag;
+}
+
+/* ── 세 영역의 순서와 폭 ─────────────────────────────────────────────────── */
+ytmusic-app-layout > ytmusic-player-bar .middle-controls {
+  order: 1;
+  flex: 1 1 auto !important;
+  min-width: 0 !important;
+  width: auto !important;
+  padding: 0 !important;
+  justify-content: flex-start !important;
+  align-items: center !important;
+}
+ytmusic-app-layout > ytmusic-player-bar .left-controls {
+  order: 2;
+  flex: 0 0 auto !important;
+  width: auto !important;
+  padding: 0 !important;
+}
+ytmusic-app-layout > ytmusic-player-bar #right-controls {
+  order: 3;
+  flex: 0 0 auto !important;
+  width: auto !important;
+  padding: 0 !important;
+}
+
+/* ── 앨범아트 ────────────────────────────────────────────────────────────── */
+ytmusic-app-layout > ytmusic-player-bar .thumbnail-image-wrapper {
+  margin: 0 9px 0 0 !important;
+  flex: 0 0 auto !important;
+}
+ytmusic-app-layout > ytmusic-player-bar .thumbnail-image-wrapper img.image {
+  width: 44px !important;
+  height: 44px !important;
+  object-fit: cover !important;
+  border-radius: 6px !important;
+}
+
+/* ── 제목 / 가수 ─────────────────────────────────────────────────────────── */
+ytmusic-app-layout > ytmusic-player-bar .content-info-wrapper {
+  display: flex !important;
+  flex-direction: column !important;
+  justify-content: center !important;
+  flex: 1 1 auto !important;
+  min-width: 0 !important;
+  width: auto !important;
+  max-width: none !important;
+  overflow: hidden !important;
+  padding: 0 6px 0 0 !important;
+}
+ytmusic-app-layout > ytmusic-player-bar .content-info-wrapper .title {
+  display: block !important;
+  font-size: 13px !important;
+  line-height: 18px !important;
+  white-space: nowrap !important;
+  overflow: hidden !important;
+  text-overflow: clip !important;
+}
+ytmusic-app-layout > ytmusic-player-bar .content-info-wrapper .byline-wrapper,
+ytmusic-app-layout > ytmusic-player-bar .content-info-wrapper .subtitle,
+ytmusic-app-layout > ytmusic-player-bar .content-info-wrapper .byline {
+  display: block !important;
+  font-size: 12px !important;
+  line-height: 16px !important;
+  color: #aaa !important;
+  white-space: nowrap !important;
+  overflow: hidden !important;
+  text-overflow: clip !important;
+  min-width: 0 !important;
+}
+/* 넘치는 텍스트는 bridge.js 가 좌우로 스크롤(마키)한다. 끝을 살짝 페이드 */
+ytmusic-app-layout > ytmusic-player-bar .content-info-wrapper .title,
+ytmusic-app-layout > ytmusic-player-bar .content-info-wrapper .byline {
+  -webkit-mask-image: linear-gradient(90deg, #000 calc(100% - 14px), transparent);
+  mask-image: linear-gradient(90deg, #000 calc(100% - 14px), transparent);
+}
+ytmusic-app-layout > ytmusic-player-bar .content-info-wrapper .title.ytm-dock-scrolling,
+ytmusic-app-layout > ytmusic-player-bar .content-info-wrapper .byline.ytm-dock-scrolling {
+  -webkit-mask-image: linear-gradient(90deg, transparent, #000 10px, #000 calc(100% - 14px), transparent);
+  mask-image: linear-gradient(90deg, transparent, #000 10px, #000 calc(100% - 14px), transparent);
+}
+/* .byline 은 flex 였고 자식(a/span)이 block — block 으로 바꿨으니 자식은 inline 으로 */
+ytmusic-app-layout > ytmusic-player-bar .content-info-wrapper .byline > * {
+  display: inline !important;
+}
+
+/* ── 숨길 것들 ───────────────────────────────────────────────────────────── */
+ytmusic-app-layout > ytmusic-player-bar .time-info,
+ytmusic-app-layout > ytmusic-player-bar .middle-controls-buttons,
+ytmusic-app-layout > ytmusic-player-bar .captions,
+ytmusic-app-layout > ytmusic-player-bar .repeat,
+ytmusic-app-layout > ytmusic-player-bar .shuffle,
+ytmusic-app-layout > ytmusic-player-bar .expand-button,
+ytmusic-app-layout > ytmusic-player-bar #expanding-menu,
+ytmusic-app-layout > ytmusic-player-bar .toggle-player-page-button,
+ytmusic-app-layout > ytmusic-player-bar .exit-fullscreen-button,
+ytmusic-app-layout > ytmusic-player-bar #right-controls-mweb,
+ytmusic-app-layout > ytmusic-player-bar #hover-time-info {
+  display: none !important;
+}
+
+/* ── 타임라인(진행바): 바 상단에 얇게. 실측: 트랙(2px)이 바 top 0~2px 에 걸쳐 있어 4px 내린다 ── */
+ytmusic-app-layout > ytmusic-player-bar #progress-bar {
+  display: block !important;
+  position: absolute !important;
+  top: 4px !important;
+  left: 0 !important;
+  right: 0 !important;
+  width: 100% !important;
+  margin: 0 !important;
+  z-index: 3 !important;
+  app-region: no-drag;
+  -webkit-app-region: no-drag;
+}
+ytmusic-app-layout > ytmusic-player-bar #progress-bar #progressContainer,
+ytmusic-app-layout > ytmusic-player-bar #progress-bar #primaryProgress {
+  height: 3px !important;
+}
+
+/* ── 볼륨: 아이콘에 마우스를 올리면 슬라이더가 아이콘 왼쪽으로 "쏙" 나온다 ───────────
+ * 실측: #volume-slider 는 평소 opacity:1e-6 + visibility:hidden, 호버 시 .2s 페이드.
+ * 유튜브 원래 동작은 슬라이더가 레이아웃 공간을 차지해 아이콘↔슬라이더 사이가 떠 있었다.
+ * 여기선 슬라이더를 absolute 로 띄워 아이콘에 딱 붙이고, 호버 영역을 #right-controls 전체로 잡아
+ * 아이콘에서 슬라이더로 마우스를 옮기는 동안 사라지지 않게 한다. */
+ytmusic-app-layout > ytmusic-player-bar #right-controls {
+  display: flex !important;
+  align-items: center !important;
+  position: relative !important;
+  gap: 0 !important;
+  margin-left: 2px !important;
+}
+ytmusic-app-layout > ytmusic-player-bar .right-controls-buttons {
+  margin: 0 !important;
+  padding: 0 !important;
+}
+ytmusic-app-layout > ytmusic-player-bar .volume {
+  display: block !important;
+  margin: 0 !important;
+}
+ytmusic-app-layout > ytmusic-player-bar #volume-slider {
+  display: flex !important;
+  position: absolute !important;
+  right: 100% !important;
+  top: 50% !important;
+  transform: translateY(-50%) !important;
+  width: 104px !important;
+  height: 32px !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  box-sizing: border-box !important;
+  background: #262626 !important;
+  border-radius: 16px !important;
+  box-shadow: 0 2px 8px rgba(0,0,0,.5) !important;
+  opacity: 0 !important;
+  visibility: hidden !important;
+  pointer-events: none !important;
+  transition: opacity .15s, visibility .15s !important;
+  z-index: 5 !important;
+}
+ytmusic-app-layout > ytmusic-player-bar #right-controls:hover #volume-slider,
+ytmusic-app-layout > ytmusic-player-bar #volume-slider.ytm-dock-volume-show {
+  opacity: 1 !important;
+  visibility: visible !important;
+  pointer-events: auto !important;
+}
+/* 손잡이(#sliderKnob) 크기는 건드리지 않는다 — 줄이면 트랙과 어긋난다 (r5 에서 확인) */
+
+/* ── 버튼 축소: 기본 36/52px → 30/36px. 텍스트 공간을 벌기 위해 ───────────── */
+ytmusic-app-layout > ytmusic-player-bar .left-controls-buttons {
+  gap: 0 !important;
+}
+ytmusic-app-layout > ytmusic-player-bar yt-icon-button {
+  width: 30px !important;
+  height: 30px !important;
+  padding: 0 !important;
+  margin: 0 !important;
+}
+ytmusic-app-layout > ytmusic-player-bar yt-icon-button#play-pause-button {
+  width: 36px !important;
+  height: 36px !important;
+  margin: 0 1px !important;
+}
+ytmusic-app-layout > ytmusic-player-bar yt-icon-button button,
+ytmusic-app-layout > ytmusic-player-bar yt-icon-button yt-icon,
+ytmusic-app-layout > ytmusic-player-bar yt-icon-button svg {
+  width: 100% !important;
+  height: 100% !important;
+  padding: 0 !important;
+  box-sizing: border-box !important;
+}
+ytmusic-app-layout > ytmusic-player-bar yt-icon-button yt-icon {
+  padding: 4px !important;
+}
+
+/* ── 드래그 제외 영역 (버튼·슬라이더·링크) ───────────────────────────────── */
+ytmusic-app-layout > ytmusic-player-bar button,
+ytmusic-app-layout > ytmusic-player-bar a,
+ytmusic-app-layout > ytmusic-player-bar yt-icon-button,
+ytmusic-app-layout > ytmusic-player-bar tp-yt-paper-slider {
+  app-region: no-drag;
+  -webkit-app-region: no-drag;
+}
