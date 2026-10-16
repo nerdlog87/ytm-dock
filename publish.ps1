@@ -33,6 +33,7 @@ else { $args += "--self-contained"; $args += "false" }
 
 Write-Host "dotnet $($args -join ' ')" -ForegroundColor DarkGray
 & dotnet @args
+if ($LASTEXITCODE -ne 0) { Write-Host "`n빌드 실패 (dotnet 종료 코드 $LASTEXITCODE)" -ForegroundColor Red; exit $LASTEXITCODE }
 
 $exe = Join-Path $out "YtmDock.exe"
 if (Test-Path $exe) {

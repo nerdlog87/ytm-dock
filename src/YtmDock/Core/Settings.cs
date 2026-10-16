@@ -1,4 +1,5 @@
 using System.IO;
+using System.Text.Encodings.Web;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 
@@ -13,7 +14,9 @@ public sealed class Settings
     public WindowSettings  Window  { get; set; } = new();
     public StartupSettings Startup { get; set; } = new();
     public HotkeySettings  Hotkeys { get; set; } = new();
-    public MorningSettings Morning { get; set; } = new();
+    public AlarmSettings   Alarms  { get; set; } = new();
+    /// <summary>v0.1 의 '아침 자동 재생'. 읽을 때 Alarms 로 옮기고 null 로 비운다(파일에서 사라짐).</summary>
+    public MorningSettings? Morning { get; set; }
     public PeekSettings    Peek    { get; set; } = new();
     public string StartUrl { get; set; } = "https://music.youtube.com/";
 
@@ -62,7 +65,40 @@ public sealed class Settings
         public int Seconds { get; set; } = 4;
     }
 
-    /// <summary>아침 자동 재생: 시작 시각이 Before 이전(기본 평일만)이면 PlaylistUrl 을 바로 재생.</summary>
+    /// <summary>
+    /// 알람 자동 재생. 정한 시각에 플레이리스트를 재생한다. 여러 개 등록 가능.
+    /// PC 가 켜져 있으면 그 시각에, 꺼져 있거나 잠자고 있었다면 켜거나 깨운 순간(CatchUpMinutes 안일 때만) 울린다.
+    /// </summary>
+    public sealed class AlarmSettings
+    {
+        /// <summary>전체 스위치 (트레이 '알람 자동 재생')</summary>
+        public bool Enabled { get; set; } = true;
+        /// <summary>알람 시각이 지난 뒤 이 시간 안에 PC 를 켜거나 깨우면 놓친 알람을 대신 울린다.</summary>
+        public int CatchUpMinutes { get; set; } = 60;
+        /// <summary>알람 시각에 이미 YTM Dock 에서 음악이 나오고 있으면 끊지 않는다.</summary>
+        public bool SkipIfPlaying { get; set; } = true;
+        /// <summary>true 면 화면이 잠겨 있는 동안은 미뤘다가 잠금을 풀 때 울린다 (CatchUpMinutes 안일 때만).</summary>
+        public bool DeferWhileLocked { get; set; } = false;
+        public List<Alarm> Items { get; set; } = new();
+    }
+
+    public sealed class Alarm
+    {
+        public static readonly DayOfWeek[] Weekdays = { DayOfWeek.Monday, DayOfWeek.Tuesday, DayOfWeek.Wednesday, DayOfWeek.Thursday, DayOfWeek.Friday };
+        public static readonly DayOfWeek[] AllDays = { DayOfWeek.Monday, DayOfWeek.Tuesday, DayOfWeek.Wednesday, DayOfWeek.Thursday, DayOfWeek.Friday, DayOfWeek.Saturday, DayOfWeek.Sunday };
+
+        public string Id { get; set; } = Guid.NewGuid().ToString("N")[..8];
+        public bool Enabled { get; set; } = true;
+        /// <summary>"HH:mm"</summary>
+        public string Time { get; set; } = "08:00";
+        public List<DayOfWeek> Days { get; set; } = Weekdays.ToList();
+        /// <summary>playlist?list=… 또는 watch?list=… 아무거나</summary>
+        public string? PlaylistUrl { get; set; }
+        /// <summary>마지막으로 울린 '알람 날짜' (yyyy-MM-dd). 하루 한 번만 울리게 하는 장치.</summary>
+        public string? LastFired { get; set; }
+    }
+
+    /// <summary>v0.1 설정 호환용. 시작 시각이 Before 이전이면 재생하던 규칙 → 이제는 Before 시각의 알람으로 옮긴다.</summary>
     public sealed class MorningSettings
     {
         public bool Enabled { get; set; } = false;
@@ -77,6 +113,9 @@ public sealed class Settings
     {
         WriteIndented = true,
         DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
+        Converters = { new JsonStringEnumConverter() },   // 요일을 "Monday" 처럼 사람이 읽을 수 있게
+        // 기본 인코더는 "Ctrl+Alt+Z" 의 + 를 \u002B 로 바꿔 써서 손으로 고치기 불편하다
+        Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
     };
 
     public static Settings Load()
@@ -86,21 +125,30 @@ public sealed class Settings
             if (System.IO.File.Exists(File))
             {
                 var loaded = JsonSerializer.Deserialize<Settings>(System.IO.File.ReadAllText(File), JsonOpts) ?? new Settings();
-                // v0.1 빌드 중 바뀐 옛 기본값들은 한 번만 새 기본값으로 교체 (사용자가 직접 정한 값은 건드리지 않음)
-                var h = loaded.Hotkeys;
-                var wasOldTriple = IsOld(h.PlayPause, "Ctrl+Alt+Space", "Ctrl+Alt+P", "Ctrl+Alt+Z")
-                                && IsOld(h.Prev, "Ctrl+Alt+Left", "Ctrl+Alt+X")
-                                && IsOld(h.Next, "Ctrl+Alt+Right", "Ctrl+Alt+C");
-                if (wasOldTriple) { h.Prev = "Ctrl+Alt+Z"; h.Next = "Ctrl+Alt+X"; h.PlayPause = "Ctrl+Alt+C"; }
+                // (v0.1 개발 중엔 여기서 옛 기본 핫키 Ctrl+Alt+Left/Right/Space 를 Z/X/C 로 '바꿔 주는' 코드가 있었다.
+                //  그런데 사용자가 일부러 그 조합을 고르면 실행할 때마다 되돌려 버리는 버그였다 → v0.1.1 에서 삭제.
+                //  설정 이전은 '한 번만 일어나는 흔적'(예: Morning 이 있으면)이 있을 때만 한다.)
+
+                // v0.1 '아침 자동 재생' → 알람 하나로 이전 ("08:00 이전에 켜면" 이 아니라 "08:00 에" 울리는 것으로 바뀜)
+                if (loaded.Morning is { } m)
+                {
+                    if (loaded.Alarms.Items.Count == 0 && !string.IsNullOrWhiteSpace(m.PlaylistUrl))
+                        loaded.Alarms.Items.Add(new Alarm
+                        {
+                            Enabled = m.Enabled,
+                            Time = TimeOnly.TryParse(m.Before, out var t) ? t.ToString("HH:mm") : "08:00",
+                            Days = (m.WeekdaysOnly ? Alarm.Weekdays : Alarm.AllDays).ToList(),
+                            PlaylistUrl = m.PlaylistUrl,
+                        });
+                    loaded.Morning = null;
+                    loaded.Save();
+                }
                 return loaded;
             }
         }
         catch { /* 깨진 설정 파일은 무시하고 기본값으로 */ }
         return new Settings();
     }
-
-    private static bool IsOld(string? v, params string[] olds) =>
-        v is not null && olds.Any(o => string.Equals(v, o, StringComparison.OrdinalIgnoreCase));
 
     public void Save()
     {

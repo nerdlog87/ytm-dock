@@ -30,19 +30,21 @@ public partial class App : System.Windows.Application
 
         _win = new MainWindow(Settings);
 
-        _tray = new TrayIcon(Settings.Startup.RunAtLogin, Settings.Window.Locked, Settings.Morning.Enabled, Settings.Peek.Enabled);
+        _tray = new TrayIcon(Settings.Startup.RunAtLogin, Settings.Window.Locked, Settings.Alarms.Enabled, Settings.Peek.Enabled);
         _tray.PeekChanged += on => { Settings.Peek.Enabled = on; Settings.Save(); };
         _win.HotkeyProblem += msg => _tray.ShowBalloon(msg);
-        _tray.MorningChanged += on => { Settings.Morning.Enabled = on; Settings.Save();
-            if (on && string.IsNullOrWhiteSpace(Settings.Morning.PlaylistUrl))
-                _tray.ShowBalloon("아직 플레이리스트가 없어요. 유튜브 뮤직에서 재생목록을 연 뒤 '아침 플레이리스트로 지정'을 눌러 주세요."); };
-        _tray.SetMorningPlaylistRequested += () =>
+        _win.AlarmNotice += msg => _tray.ShowBalloon(msg);
+        _tray.AlarmsChanged += on => { Settings.Alarms.Enabled = on; Settings.Save();
+            if (on && Settings.Alarms.Items.Count == 0)
+                _tray.ShowBalloon("아직 알람이 없어요. 트레이 → '알람 설정…'에서 시각과 플레이리스트를 추가해 주세요."); };
+        _tray.AlarmSettingsRequested += () =>
         {
-            var id = MorningRule.ExtractListId(_win.CurrentUrl);
-            if (id is null) { _tray.ShowBalloon("재생목록(list=)이 열려 있지 않아요. 전체 모드에서 플레이리스트를 먼저 여세요."); return; }
-            Settings.Morning.PlaylistUrl = $"https://music.youtube.com/playlist?list={id}";
-            Settings.Save();
-            _tray.ShowBalloon("아침 플레이리스트로 지정했어요.");
+            var dlg = new AlarmWindow(Settings, () => _win.CurrentUrl, url => _win.PlayPlaylist(url));
+            dlg.ShowDialog();
+            if (!dlg.Saved) return;
+            _tray.AlarmsChecked = Settings.Alarms.Enabled;
+            var on = Settings.Alarms.Items.Count(a => a.Enabled);
+            _tray.ShowBalloon(Settings.Alarms.Enabled && on > 0 ? $"알람 {on}개가 켜져 있어요." : "켜진 알람이 없어요.");
         };
         _tray.HotkeySettingsRequested += () =>
         {

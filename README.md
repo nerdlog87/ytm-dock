@@ -11,7 +11,7 @@
 └────────────────────────────────────────────────┘
 ```
 
-> 상태: **v0.1** (2026-10) · Windows 10 21H2+ / 11 · 개발 과정은 [NERD LOG 개발노트](https://nerdlog.kr) 에 연재
+> 상태: **v0.1.1** (2026-10) · Windows 10 21H2+ / 11 · 개발 과정은 [NERD LOG 개발노트](https://nerdlog.kr) 에 연재
 
 ## 기능
 
@@ -29,7 +29,9 @@
   | 👁 위젯 보이기 / 숨기기 | `Ctrl+Alt+M` |
   | 🔊 볼륨 +5 / −5 | `Ctrl+Alt+↑` / `Ctrl+Alt+↓` |
 
-- **아침 자동 재생** — 평일 08:00 이전에 PC 를 켰다면 지정한 플레이리스트를 바로 재생
+- **알람 자동 재생** — 정한 시각에 플레이리스트를 재생. 알람은 여러 개, 요일별로 등록 가능
+  - PC 가 켜져 있으면 그 시각에 울리고, 꺼져 있거나 절전 중이었다면 켜거나 깨우는 순간 대신 울림(기본 60분 안)
+  - 알람마다 하루 한 번만 · 이미 음악이 나오고 있으면 끊지 않음 · 잠금 화면에선 풀 때까지 미루기(선택)
 - 볼륨 아이콘에 마우스를 올리면 슬라이더가 옆으로 쏙 나옴
 - 긴 곡 제목은 자동으로 좌우 스크롤
 - 상단에 얇은 **타임라인**(클릭·드래그로 탐색)
@@ -55,7 +57,14 @@ cd ytm-dock\src\YtmDock
 dotnet run
 ```
 
-단일 exe 로 만들기 (저장소 루트에서):
+가장 쉬운 방법 — 저장소 폴더에서 **더블클릭**:
+
+| 파일 | 하는 일 |
+|---|---|
+| `run.cmd` | 켜져 있는 YTM Dock 을 끄고 소스에서 바로 실행 (고친 코드 확인용) |
+| `build.cmd` | exe 두 종류를 만들어 `publish\release` 에 모으고 폴더를 열어 줌 |
+
+PowerShell 로 직접 하려면 (저장소 루트에서):
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\publish.ps1                 # 작은 exe (.NET 10 Desktop Runtime 필요)
@@ -72,7 +81,7 @@ powershell -ExecutionPolicy Bypass -File .\publish.ps1 -SelfContained  # 런타�
 | 미니 ↔ 전체 | 빈 곳 더블클릭, 또는 오른쪽 아래 `⤢` 버튼, 전체 모드에서 `Esc` |
 | 숨기기 / 다시 보기 | `Ctrl+Alt+M`, 또는 트레이 아이콘 더블클릭 |
 | 핫키 바꾸기 | 트레이 우클릭 → **핫키 설정…** → 칸 클릭 후 조합 누르기 |
-| 아침 자동 재생 | 전체 모드에서 플레이리스트를 연 뒤 트레이 → **지금 열린 재생목록을 아침 플레이리스트로 지정** → **아침 자동 재생** 체크 |
+| 알람 자동 재생 | 트레이 → **알람 설정…** → **＋ 알람 추가** → 시각·요일·플레이리스트 주소(또는 **지금 열린 목록**) → 저장. **▶ 테스트** 로 미리 들어 보기 |
 | 종료 | 트레이 우클릭 → **종료** |
 
 ## 설정 파일
@@ -88,9 +97,17 @@ powershell -ExecutionPolicy Bypass -File .\publish.ps1 -SelfContained  # 런타�
     "toggleVisible": "Ctrl+Alt+M",
     "volumeUp": "Ctrl+Alt+Up", "volumeDown": "Ctrl+Alt+Down", "volumeStep": 5
   },
-  "morning": {
-    "enabled": true, "weekdaysOnly": true, "before": "08:00",
-    "playlistUrl": "https://music.youtube.com/playlist?list=..."
+  "alarms": {
+    "enabled": true,
+    "catchUpMinutes": 60,       // 놓친 알람을 대신 울려 주는 시간
+    "skipIfPlaying": true,      // 이미 재생 중이면 끊지 않기
+    "deferWhileLocked": false,  // 잠금 화면에선 풀 때까지 미루기
+    "items": [
+      { "id": "a1b2c3d4", "enabled": true, "time": "08:00",
+        "days": ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"],
+        "playlistUrl": "https://music.youtube.com/playlist?list=...",
+        "lastFired": "2026-10-16" }   // 하루 한 번만 울리기 위한 기록 (자동)
+    ]
   },
   "peek": { "enabled": true, "seconds": 4 },
   "startUrl": "https://music.youtube.com/",
@@ -117,10 +134,16 @@ powershell -ExecutionPolicy Bypass -File .\publish.ps1 -SelfContained  # 런타�
 - 창 폭이 좁으면 유튜브 뮤직이 JS 로 '컴팩트 바'(재생/다음만)로 바꿔 버린다. 그래서 미니 모드에서는 WebView2 를 창보다 넓은 **1400px** 로 두고(볼륨 슬라이더가 나타나는 최소 폭) CSS 로 440px 에 욱여넣는다.
 - 볼륨 슬라이더 값은 실제 볼륨과 다르다(청감 곡선, 슬라이더 90 ≈ 볼륨 74). 핫키는 슬라이더 값을 바꾸고 `change` 를 쏜다.
 
+## 변경 기록
+
+- **v0.1.1** — '아침 자동 재생'(08:00 이전에 켜면 재생)을 **알람 자동 재생**으로 교체. 켜 둔 PC 에서도 정각에 울리고, 여러 개를 요일별로 등록. v0.1 설정은 같은 시각의 알람 하나로 자동 이전.
+- **v0.1.0** — 첫 공개
+
 ## 한계 (v0.1)
 
 - **투명도·블러·진짜 페이드가 안 된다.** WebView2 는 별도 HWND 이고 Chromium 이 DirectComposition 으로 직접 그리기 때문에, WPF `Opacity` 는 물론 Win32 레이어드 윈도우(`WS_EX_LAYERED` 알파)도 무시한다(실측). 그래서 등장/퇴장은 슬라이드 + 페이지 안 CSS 페이드로 대신했다. 둥근 모서리만 DWM(`DWMWA_WINDOW_CORNER_PREFERENCE`)으로 해결. 나머지는 v0.2 에서 WebView2 를 화면 밖에 숨기고 네이티브 WPF 창이 SMTC 로 정보를 받아 그리는 구조로 간다.
 - 유튜브 뮤직 DOM 에 의존한다(위 참고).
+- 알람은 YTM Dock 이 실행 중일 때만 울린다. PC 를 **절전에서 깨우는 기능은 없다**(작업 스케줄러의 '절전 모드 해제' 같은 권한이 필요해 넣지 않음). 그래서 놓친 알람은 켜거나 깨우는 순간 대신 울린다.
 - 윈도우 11 '위젯 보드'(Win+W)에는 들어가지 않는다 — 그 보드는 정적 카드만 허용해 오디오 재생이 불가능.
 - 미디어 키는 윈도우가 '가장 최근에 소리 낸 앱'에 보내므로, 다른 영상을 보고 나면 그쪽이 가져간다. 그래서 기본 핫키는 `Ctrl+Alt+…` 조합.
 
@@ -144,6 +167,6 @@ MIT
 
 ## English
 
-YTM Dock hosts the official YouTube Music web player in a frameless, always-on-top WebView2 window and hides everything except the player bar with injected CSS. It lives in the system tray, starts at login, remembers its position, and exposes global hotkeys (prev / next / play-pause / show-hide / volume ±) that you can rebind from the tray menu. A "morning" rule can start a playlist automatically when the PC boots before 08:00 on weekdays.
+YTM Dock hosts the official YouTube Music web player in a frameless, always-on-top WebView2 window and hides everything except the player bar with injected CSS. It lives in the system tray, starts at login, remembers its position, and exposes global hotkeys (prev / next / play-pause / show-hide / volume ±) that you can rebind from the tray menu. Alarms (any number, per weekday) start a playlist at a set time; if the PC was off or asleep at that moment, the missed alarm fires when you boot or wake it (within 60 min by default), once per day.
 
 Build: .NET 10 SDK → `dotnet run` in `src/YtmDock`, or `powershell -ExecutionPolicy Bypass -File .\publish.ps1 [-SelfContained]` for a single exe. Settings live in `%AppData%\YtmDock\settings.json`; if YouTube changes its markup, drop a fixed stylesheet into `cssOverride` (see the Korean section above for the DOM notes). Not affiliated with Google.

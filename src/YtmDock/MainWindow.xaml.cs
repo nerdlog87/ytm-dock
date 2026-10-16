@@ -15,7 +15,9 @@ public partial class MainWindow : Window
     private readonly DispatcherTimer _saveTimer = new() { Interval = TimeSpan.FromMilliseconds(600) };
     private bool _forceClose;
     private HotkeyManager? _hotkeys;
-    private bool _morningPending;
+    private bool _alarmPending;        // 알람으로 이동한 페이지가 로드되면 재생 버튼을 한 번 확인
+    private int _alarmRetries;         // 깨어난 직후 네트워크가 없어 로드 실패하면 몇 번 다시 시도
+    private AlarmScheduler? _alarms;
     private readonly DispatcherTimer _peekTimer = new();
     private bool _peeking;
 
@@ -45,6 +47,8 @@ public partial class MainWindow : Window
 
     /// <summary>핫키 등록 실패 등 사용자에게 알릴 일 (App 이 트레이 풍선으로 보여 준다)</summary>
     public event Action<string>? HotkeyProblem;
+    /// <summary>알람 관련 알림 (건너뜀 등)</summary>
+    public event Action<string>? AlarmNotice;
 
     public string? CurrentUrl => Web.CoreWebView2?.Source;
 
@@ -128,7 +132,7 @@ public partial class MainWindow : Window
         };
     }
 
-    public void ForceClose() { _forceClose = true; _hotkeys?.Dispose(); Close(); }
+    public void ForceClose() { _forceClose = true; _hotkeys?.Dispose(); _alarms?.Dispose(); Close(); }
 
     public void ToggleVisible()
     {
@@ -359,17 +363,23 @@ public partial class MainWindow : Window
             await core.AddScriptToExecuteOnDocumentCreatedAsync(
                 $"window.__YTM_DOCK_CSS__ = {JsonSerializer.Serialize(css)};\n{js}");
 
-            // 리로드 후에도 현재 미니/전체 상태를 유지 + 아침 자동 재생 마무리
-            core.NavigationCompleted += async (_, _) =>
+            // 리로드 후에도 현재 미니/전체 상태를 유지 + 알람 재생 마무리
+            core.NavigationCompleted += async (_, a) =>
             {
                 await ApplyModeToPageAsync();
-                if (_morningPending)
+                if (!_alarmPending) return;
+                if (!a.IsSuccess && _alarmRetries < 3)
                 {
-                    _morningPending = false;
-                    // watch?list= 는 보통 알아서 재생되지만, 자동 재생이 막혔으면 재생 버튼을 한 번 눌러 준다
-                    await Task.Delay(3000);
-                    await ExecAsync("(() => { const v = document.querySelector('video'); if (!v || v.paused) document.querySelector('#play-pause-button')?.click(); })()");
+                    // 절전에서 막 깨어나 와이파이가 아직 안 붙은 경우
+                    _alarmRetries++;
+                    await Task.Delay(10000);
+                    core.Reload();
+                    return;
                 }
+                _alarmPending = false;
+                // watch?list= 는 보통 알아서 재생되지만, 자동 재생이 막혔으면 재생 버튼을 한 번 눌러 준다
+                await Task.Delay(3000);
+                await ExecAsync("(() => { const v = document.querySelector('video'); if (!v || v.paused) document.querySelector('#play-pause-button')?.click(); })()");
             };
 
             // 페이지의 ⤢ 버튼 클릭 → 토글
@@ -380,9 +390,13 @@ public partial class MainWindow : Window
                 else if (msg is not null && msg.StartsWith("track:", StringComparison.Ordinal)) PeekForTrackChange();
             };
 
-            var morningUrl = MorningRule.Resolve(_settings.Morning, DateTime.Now);
-            _morningPending = morningUrl is not null;
-            core.Navigate(morningUrl ?? _settings.StartUrl);
+            // 알람: 앱 시작 순간(= PC 를 새로 켰을 때) 놓친 알람이 있으면 첫 페이지를 그 플레이리스트로
+            _alarms = new AlarmScheduler(_settings);
+            _alarms.Due += alarm => _ = PlayAlarmAsync(alarm);
+            var due = _alarms.TakeDue(DateTime.Now);
+            if (due is not null) { _alarmPending = true; _alarmRetries = 0; core.Navigate(PlaylistUrl.ToWatchUrl(due.PlaylistUrl!)); }
+            else core.Navigate(_settings.StartUrl);
+            _alarms.Start();
         }
         catch (Exception ex)
         {
@@ -391,6 +405,37 @@ public partial class MainWindow : Window
                 "YTM Dock", MessageBoxButton.OK, MessageBoxImage.Error);
             Close();
         }
+    }
+
+    /// <summary>알람 시각이 됐을 때. 이미 음악이 나오고 있으면(설정 시) 끊지 않는다.</summary>
+    private async Task PlayAlarmAsync(Settings.Alarm alarm)
+    {
+        if (_settings.Alarms.SkipIfPlaying && await IsPlayingAsync())
+        {
+            AlarmNotice?.Invoke($"{alarm.Time} 알람: 이미 재생 중이라 건너뛰었어요.");
+            return;
+        }
+        PlayPlaylist(alarm.PlaylistUrl!);
+    }
+
+    /// <summary>재생목록을 첫 곡부터 재생 (알람, 알람 설정 창의 '테스트').</summary>
+    public void PlayPlaylist(string url)
+    {
+        if (Web.CoreWebView2 is null) return;
+        _alarmPending = true;
+        _alarmRetries = 0;
+        Web.CoreWebView2.Navigate(PlaylistUrl.ToWatchUrl(url));
+    }
+
+    private async Task<bool> IsPlayingAsync()
+    {
+        if (Web.CoreWebView2 is null) return false;
+        try
+        {
+            var r = await Web.CoreWebView2.ExecuteScriptAsync("(() => { const v = document.querySelector('video'); return !!(v && !v.paused && !v.ended); })()");
+            return r == "true";
+        }
+        catch { return false; }
     }
 
     public void ToggleMode()

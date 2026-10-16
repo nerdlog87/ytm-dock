@@ -13,21 +13,21 @@ public sealed class TrayIcon : IDisposable
     private readonly NotifyIcon _icon;
     private readonly ToolStripMenuItem _miRunAtLogin;
     private readonly ToolStripMenuItem _miLock;
-    private readonly ToolStripMenuItem _miMorning;
+    private readonly ToolStripMenuItem _miAlarms;
     private readonly ToolStripMenuItem _miPeek;
 
     public event Action? ToggleVisibleRequested;
     public event Action? ToggleModeRequested;
     public event Action<bool>? RunAtLoginChanged;
     public event Action<bool>? LockChanged;
-    public event Action<bool>? MorningChanged;
+    public event Action<bool>? AlarmsChanged;
     public event Action<bool>? PeekChanged;
-    public event Action? SetMorningPlaylistRequested;
+    public event Action? AlarmSettingsRequested;
     public event Action? OpenSettingsRequested;
     public event Action? HotkeySettingsRequested;
     public event Action? ExitRequested;
 
-    public TrayIcon(bool runAtLogin, bool locked, bool morning, bool peek)
+    public TrayIcon(bool runAtLogin, bool locked, bool alarms, bool peek)
     {
         var menu = new ContextMenuStrip();
         menu.Items.Add("보이기 / 숨기기", null, (_, _) => ToggleVisibleRequested?.Invoke());
@@ -45,10 +45,10 @@ public sealed class TrayIcon : IDisposable
         menu.Items.Add(_miRunAtLogin);
         menu.Items.Add(new ToolStripSeparator());
 
-        _miMorning = new ToolStripMenuItem("아침 자동 재생 (평일 08:00 이전 시작 시)") { CheckOnClick = true, Checked = morning };
-        _miMorning.CheckedChanged += (_, _) => MorningChanged?.Invoke(_miMorning.Checked);
-        menu.Items.Add(_miMorning);
-        menu.Items.Add("지금 열린 재생목록을 아침 플레이리스트로 지정", null, (_, _) => SetMorningPlaylistRequested?.Invoke());
+        _miAlarms = new ToolStripMenuItem("알람 자동 재생") { CheckOnClick = true, Checked = alarms };
+        _miAlarms.CheckedChanged += (_, _) => AlarmsChanged?.Invoke(_miAlarms.Checked);
+        menu.Items.Add(_miAlarms);
+        menu.Items.Add("알람 설정…", null, (_, _) => AlarmSettingsRequested?.Invoke());
         menu.Items.Add("설정 파일 열기 (settings.json)", null, (_, _) => OpenSettingsRequested?.Invoke());
         menu.Items.Add(new ToolStripSeparator());
         menu.Items.Add("종료", null, (_, _) => ExitRequested?.Invoke());
@@ -62,6 +62,9 @@ public sealed class TrayIcon : IDisposable
         };
         _icon.DoubleClick += (_, _) => ToggleVisibleRequested?.Invoke();
     }
+
+    /// <summary>알람 설정 창에서 전체 스위치를 바꿨을 때 메뉴 체크 표시를 맞춘다.</summary>
+    public bool AlarmsChecked { set { if (_miAlarms.Checked != value) _miAlarms.Checked = value; } }
 
     public void ShowBalloon(string text) => _icon.ShowBalloonTip(2500, "YTM Dock", text, ToolTipIcon.Info);
 
